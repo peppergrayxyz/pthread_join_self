@@ -1,0 +1,307 @@
+name: libc self-join laboratory
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+  schedule:
+    - cron: '17 6 * * 1' # weekly: Mondays 06:17 UTC
+
+permissions:
+  contents: read
+
+concurrency:
+  group: libc-selfjoin-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux-containers:
+    name: Linux containers + WebAssembly targets
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Self-test the harness and report generator
+        run: python3 -m unittest discover -s unit_tests -v
+      - name: Compile and run probes in isolated containers
+        run: python3 scripts/run_containers.py --engine docker --out results
+      - name: Upload raw observations
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: result-linux-containers
+          path: results/*.json
+          if-no-files-found: warn
+
+  macos:
+    name: macOS (libSystem/libpthread)
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: '3.12'
+      - name: Compile and run
+        run: python3 scripts/run_case.py --id macos-libsystem --libc 'Apple libSystem/libpthread' --kind native --out results/macos-libsystem.json
+      - name: Upload observation
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: result-macos
+          path: results/*.json
+          if-no-files-found: warn
+
+  windows:
+    name: Windows (UCRT + winpthreads)
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Install UCRT64 compiler and Python
+        uses: msys2/setup-msys2@ec48f7c5447b3140e2b088413ae3a55687bccb6e # v2.33.0
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-python
+      - name: Compile and run
+        run: python3 scripts/run_case.py --id windows-winpthreads --libc 'MinGW-w64 winpthreads (UCRT)' --kind native --cc gcc --out results/windows-winpthreads.json
+      - name: Upload observation
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: result-windows
+          path: results/*.json
+          if-no-files-found: warn
+
+  cygwin:
+    name: Windows (Cygwin libc)
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Install genuine Cygwin (not MinGW)
+        uses: egor-tensin/setup-cygwin@9d87facad6e2e0dc56614ec6edf86dbc60dcda39 # v4.0.5
+        with:
+          packages: gcc-core python312
+      - name: Compile and execute within Cygwin
+        shell: C:\tools\cygwin\bin\bash.exe --login --norc -eo pipefail -o igncr '{0}'
+        env:
+          CHERE_INVOKING: 1 # keep /etc/profile from changing to $HOME
+        run: |
+          cd "$(cygpath -u "$GITHUB_WORKSPACE")"
+          python3.12 scripts/run_case.py --id windows-cygwin --libc 'Cygwin libc (cygwin1.dll)' --kind native --cc gcc --out results/windows-cygwin.json
+      - name: Upload observation
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: result-cygwin
+          path: results/*.json
+          if-no-files-found: warn
+
+  android:
+    name: Android emulator (Bionic)
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Enable KVM acceleration on Linux runner
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node", TAG+="uaccess"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Compile via NDK and run inside Android x86_64
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          ndk: 27.2.12479018
+          script: python3 scripts/run_android.py --out results/android-bionic.json
+      - name: Upload observation
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: result-android
+          path: results/*.json
+          if-no-files-found: warn
+
+  freebsd:
+    name: FreeBSD VM
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: vmactions/freebsd-vm@c46abacb49f09938ca4e1702d15d836285d694cc # v1.5.9
+        with:
+          sync: rsync
+          copyback: true
+          prepare: pkg install -y python3
+          run: sh scripts/run_guest.sh freebsd-libthr 'FreeBSD libthr'
+      - name: Upload observation
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: result-freebsd
+          path: results/*.json
+          if-no-files-found: warn
+
+  openbsd:
+    name: OpenBSD VM
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: vmactions/openbsd-vm@f1ca8bc8ecc5b6ef7218e5b914836e067e1546d3 # v1.4.9
+        with:
+          sync: rsync
+          copyback: true
+          prepare: |
+            pkg_add -I 'python%3.14' || pkg_add -I 'python%3.13' || pkg_add -I 'python%3.12'
+          run: sh scripts/run_guest.sh openbsd-libc 'OpenBSD libc/libpthread'
+      - name: Upload observation
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: result-openbsd
+          path: results/*.json
+          if-no-files-found: warn
+
+  netbsd:
+    name: NetBSD VM
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: vmactions/netbsd-vm@5957cf330aef2e6ddc63c604364c99ce2e02b91d # v1.5.3
+        with:
+          sync: rsync
+          copyback: true
+          # pkgin is not in the base system (the job died with ssh exit 127), and
+          # the guest shell's PATH may lack /usr/pkg/bin. pkg_add is base and,
+          # in this image, preconfigured with the pkgsrc binary repository.
+          prepare: |
+            /usr/sbin/pkg_add python314 || /usr/sbin/pkg_add python313 || /usr/sbin/pkg_add python312
+          run: sh scripts/run_guest.sh netbsd-libpthread 'NetBSD libpthread'
+      - name: Upload observation
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: result-netbsd
+          path: results/*.json
+          if-no-files-found: warn
+
+  dragonflybsd:
+    name: DragonFly BSD VM
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: vmactions/dragonflybsd-vm@4ab776fa9f914fbea72f13715b451e77e7ef5c41 # v1.3.4
+        with:
+          sync: rsync
+          copyback: true
+          prepare: pkg install -y python3
+          run: sh scripts/run_guest.sh dragonfly-libthread 'DragonFly BSD libthread_xu'
+      - name: Upload observation
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: result-dragonflybsd
+          path: results/*.json
+          if-no-files-found: warn
+
+  solaris:
+    name: Oracle Solaris 11.4 VM
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: vmactions/solaris-vm@1c166978f5a2c1f87f1c9d4d8dd85ae3d1eff6f7 # v1.4.2
+        with:
+          sync: rsync
+          copyback: true
+          release: '11.4-gcc'
+          prepare: |
+            command -v python3 >/dev/null 2>&1 || pkg install runtime/python-311 || [ $? -eq 4 ] # 4 = nothing to do
+          run: sh scripts/run_guest.sh solaris-libc 'Oracle Solaris libc' gcc
+      - name: Upload observation
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: result-solaris
+          path: results/*.json
+          if-no-files-found: warn
+
+  omnios:
+    name: OmniOS VM (illumos libc)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: vmactions/omnios-vm@aeee92416495d9685b2997d954f6b063ae5b832d # v1.3.8
+        with:
+          sync: rsync
+          copyback: true
+          # pkg exits 4 when already installed. Python ships with the base system
+          # (pkg(5) needs it); run_guest.sh finds whichever python3.x is present.
+          prepare: pkg install build-essential || [ $? -eq 4 ]
+          run: sh scripts/run_guest.sh illumos-omnios 'illumos libc (OmniOS)' gcc
+      - name: Upload observation
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: result-omnios
+          path: results/*.json
+          if-no-files-found: warn
+
+  report:
+    name: Generate static website
+    if: ${{ !cancelled() }}
+    needs: [linux-containers, macos, windows, cygwin, android, freebsd, openbsd, netbsd, dragonflybsd, solaris, omnios]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: result-*
+          path: results
+          merge-multiple: true
+        continue-on-error: true # generator marks absent results as 'NO ARTIFACT'
+      - name: Generate report
+        run: python3 scripts/report.py --input results --output site
+      - name: Upload report archive
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: selfjoin-html-report
+          path: site/
+      - name: Upload Pages artifact
+        if: github.ref == 'refs/heads/main'
+        uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3.0.1
+        with:
+          path: site/
+
+  deploy:
+    name: Publish GitHub Pages
+    # Without a status function GitHub adds success(), which checks every
+    # transitive upstream job, so one failed VM job would skip the deploy.
+    if: ${{ !cancelled() && github.ref == 'refs/heads/main' && needs.report.result == 'success' }}
+    needs: [report]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4.0.5

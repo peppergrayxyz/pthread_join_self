@@ -1,0 +1,9 @@
+#!/bin/sh
+# Never fall back to host gcc: this would measure glibc instead of uClibc-ng.
+for cc in /opt/bootlin/*/bin/*-gcc /opt/bootlin/bin/*-gcc; do
+    if [ -x "$cc" ]; then
+        exec "$cc" "$@"
+    fi
+done
+echo 'Bootlin uClibc-ng compiler missing from extracted toolchain' >&2
+exit 127

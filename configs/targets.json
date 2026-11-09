@@ -1,0 +1,177 @@
+{
+  "targets": [
+    {
+      "id": "linux-glibc",
+      "libc": "glibc",
+      "os": "Linux (Debian)",
+      "kind": "container",
+      "dockerfile": "containers/glibc.Dockerfile",
+      "expect_libc": "glibc"
+    },
+    {
+      "id": "linux-musl",
+      "libc": "musl",
+      "os": "Linux (Alpine)",
+      "kind": "container",
+      "dockerfile": "containers/musl.Dockerfile",
+      "expect_libc": "linux-unmarked"
+    },
+    {
+      "id": "linux-dietlibc",
+      "libc": "dietlibc",
+      "os": "Linux (Debian)",
+      "kind": "container",
+      "dockerfile": "containers/dietlibc.Dockerfile",
+      "cc": "diet gcc",
+      "expect_libc": "dietlibc",
+      "ldflags": "-lpthread"
+    },
+    {
+      "id": "linux-uclibc-ng",
+      "libc": "uClibc-ng 1.0.54 (Bootlin)",
+      "os": "Linux (uClibc-ng toolchain)",
+      "kind": "container",
+      "dockerfile": "containers/uclibc-ng.Dockerfile",
+      "cc": "uclibc-cc",
+      "cflags": "-static",
+      "platform": "linux/amd64",
+      "expect_libc": "uclibc-ng"
+    },
+    {
+      "id": "linux-cosmopolitan",
+      "libc": "Cosmopolitan libc (cosmocc)",
+      "os": "Linux (APE portable executable)",
+      "kind": "container",
+      "dockerfile": "containers/cosmopolitan.Dockerfile",
+      "cc": "/opt/cosmocc/bin/x86_64-unknown-cosmo-cc",
+      "platform": "linux/amd64",
+      "expect_libc": "cosmopolitan"
+    },
+    {
+      "id": "wasm-emscripten",
+      "libc": "Emscripten libc (musl-derived)",
+      "os": "WebAssembly (Node.js workers)",
+      "kind": "container",
+      "dockerfile": "containers/emscripten.Dockerfile",
+      "cc": "emcc",
+      "suffix": ".js",
+      "runner": "node",
+      "ldflags": "-sPTHREAD_POOL_SIZE=1 -sENVIRONMENT=node -sEXIT_RUNTIME=1",
+      "expect_libc": "emscripten"
+    },
+    {
+      "id": "wasm-wasi-libc",
+      "libc": "wasi-libc (WASIp1 threads)",
+      "os": "WebAssembly (Wasmtime threads)",
+      "kind": "container",
+      "dockerfile": "containers/wasi-libc.Dockerfile",
+      "cc": "/opt/wasi-sdk/bin/clang",
+      "cflags": "--target=wasm32-wasip1-threads",
+      "suffix": ".wasm",
+      "runner": "wasmtime --wasi threads",
+      "platform": "linux/amd64",
+      "expect_libc": "wasi-libc",
+      "ldflags": "-Wl,--import-memory,--export-memory,--max-memory=67108864"
+    },
+    {
+      "id": "macos-libsystem",
+      "libc": "Apple libSystem/libpthread",
+      "os": "macOS",
+      "kind": "native",
+      "expect_libc": "apple"
+    },
+    {
+      "id": "windows-winpthreads",
+      "libc": "MinGW-w64 winpthreads (UCRT)",
+      "os": "Windows (MSYS2 UCRT64)",
+      "kind": "native",
+      "expect_libc": "mingw-w64"
+    },
+    {
+      "id": "windows-cygwin",
+      "libc": "Cygwin libc (cygwin1.dll)",
+      "os": "Windows (Cygwin POSIX environment)",
+      "kind": "native",
+      "expect_libc": "cygwin"
+    },
+    {
+      "id": "android-bionic",
+      "libc": "Android Bionic",
+      "os": "Android x86_64 emulator (API 35)",
+      "kind": "emulator",
+      "expect_libc": "bionic"
+    },
+    {
+      "id": "freebsd-libthr",
+      "libc": "FreeBSD libthr",
+      "os": "FreeBSD",
+      "kind": "vm",
+      "expect_libc": "freebsd"
+    },
+    {
+      "id": "openbsd-libc",
+      "libc": "OpenBSD libc/libpthread",
+      "os": "OpenBSD",
+      "kind": "vm",
+      "expect_libc": "openbsd"
+    },
+    {
+      "id": "netbsd-libpthread",
+      "libc": "NetBSD libpthread",
+      "os": "NetBSD",
+      "kind": "vm",
+      "expect_libc": "netbsd"
+    },
+    {
+      "id": "dragonfly-libthread",
+      "libc": "DragonFly BSD libthread_xu",
+      "os": "DragonFly BSD",
+      "kind": "vm",
+      "expect_libc": "dragonfly"
+    },
+    {
+      "id": "solaris-libc",
+      "libc": "Oracle Solaris libc",
+      "os": "Oracle Solaris 11.4",
+      "kind": "vm",
+      "expect_libc": "solaris"
+    },
+    {
+      "id": "illumos-omnios",
+      "libc": "illumos libc (OmniOS)",
+      "os": "OmniOS (illumos)",
+      "kind": "vm",
+      "expect_libc": "illumos"
+    }
+  ],
+  "not_automated": [
+    {
+      "libc": "Historical uClibc (pre-ng)",
+      "why": "The automated target is modern uClibc-ng; legacy uClibc needs a compatible old toolchain and kernel."
+    },
+    {
+      "libc": "LLVM libc",
+      "why": "Requires building a complete standalone LLVM-libc sysroot and linking against it, not just using clang against glibc. See docs/EXPERIMENTAL.md."
+    },
+    {
+      "libc": "mlibc",
+      "why": "Needs a supported target OS (e.g. Managarm) and a compatible build/runtime toolchain."
+    },
+    {
+      "libc": "relibc on Redox OS",
+      "why": "Requires Redox guest plus its native C compiler/relibc toolchain, not a Linux relibc shim."
+    },
+    {
+      "libc": "klibc / nolibc / Newlib / Picolibc / AVR-LibC / PDCLib / emRun / Arm C library",
+      "why": "No standalone generic POSIX pthread_join implementation; depends on an RTOS or intentionally lacks pthreads."
+    },
+    {
+      "libc": "MSVCRT / UCRT alone",
+      "why": "Microsoft C runtimes do not expose POSIX pthread_join; Windows tests cover winpthreads and Cygwin separately."
+    },
+    {
+      "libc": "CloudABI cloudlibc",
+      "why": "Historical/archived target without a maintained readily available runner and pthread toolchain."
+    }
+  ]
+}
